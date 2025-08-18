@@ -9,11 +9,22 @@ import { Download, View } from '@/pages/server-logs/components/columns';
 
 export const columns: ColumnDef<Deployment>[] = [
   {
+    accessorKey: 'id',
+    header: 'ID',
+    enableColumnFilter: true,
+  },
+  {
     accessorKey: 'commit_id',
     header: 'Commit',
     enableColumnFilter: true,
     cell: ({ row }) => {
-      return row.original.commit_data?.message ?? 'No commit message';
+      return row.original.commit_data?.message ? (
+        <a href={row.original.commit_data?.url} target="_blank" className="text-primary inline-flex truncate font-mono">
+          <span className="block max-w-[300px] overflow-ellipsis">{row.original.commit_data.message}</span>
+        </a>
+      ) : (
+        'No commit message'
+      );
     },
   },
   {
