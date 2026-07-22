@@ -6,12 +6,14 @@ use App\Actions\Database\CreateDatabaseUser;
 use App\Actions\Database\DeleteDatabaseUser;
 use App\Actions\Database\LinkUser;
 use App\Actions\Database\SyncDatabaseUsers;
+use App\Actions\Database\UpdateDatabaseUser;
 use App\Http\Resources\DatabaseResource;
 use App\Http\Resources\DatabaseUserResource;
 use App\Models\DatabaseUser;
 use App\Models\Server;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\ResourceCollection;
 use Inertia\Inertia;
 use Inertia\Response;
 use Spatie\RouteAttributes\Attributes\Delete;
@@ -37,6 +39,14 @@ class DatabaseUserController extends Controller
         ]);
     }
 
+    #[Get('/json', name: 'database-users.json')]
+    public function json(Server $server): ResourceCollection
+    {
+        $this->authorize('viewAny', [DatabaseUser::class, $server]);
+
+        return DatabaseUserResource::collection($server->databaseUsers()->get());
+    }
+
     #[Post('/', name: 'database-users.store')]
     public function store(Request $request, Server $server): RedirectResponse
     {
@@ -57,6 +67,17 @@ class DatabaseUserController extends Controller
 
         return back()
             ->with('success', 'Database users synced successfully.');
+    }
+
+    #[Put('/{databaseUser}', name: 'database-users.update')]
+    public function update(Request $request, Server $server, DatabaseUser $databaseUser): RedirectResponse
+    {
+        $this->authorize('update', [$databaseUser, $server]);
+
+        app(UpdateDatabaseUser::class)->update($databaseUser, $request->all());
+
+        return back()
+            ->with('success', 'Database user updated successfully.');
     }
 
     #[Put('/link/{databaseUser}', name: 'database-users.link')]

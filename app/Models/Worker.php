@@ -20,10 +20,10 @@ use Throwable;
  * @property int $numprocs
  * @property int $redirect_stderr
  * @property string $stdout_logfile
- * @property string $status
+ * @property WorkerStatus $status
  * @property string $name
  * @property Server $server
- * @property Site $site
+ * @property ?Site $site
  */
 class Worker extends AbstractModel
 {
@@ -51,20 +51,7 @@ class Worker extends AbstractModel
         'auto_restart' => 'boolean',
         'numprocs' => 'integer',
         'redirect_stderr' => 'boolean',
-    ];
-
-    /**
-     * @var array<string, string>
-     */
-    public static array $statusColors = [
-        WorkerStatus::RUNNING => 'success',
-        WorkerStatus::CREATING => 'warning',
-        WorkerStatus::DELETING => 'warning',
-        WorkerStatus::FAILED => 'danger',
-        WorkerStatus::STARTING => 'warning',
-        WorkerStatus::STOPPING => 'warning',
-        WorkerStatus::RESTARTING => 'warning',
-        WorkerStatus::STOPPED => 'gray',
+        'status' => WorkerStatus::class,
     ];
 
     public static function boot(): void
@@ -85,9 +72,9 @@ class Worker extends AbstractModel
         });
     }
 
-    public function getServerIdAttribute(int $value): int
+    public function getServerIdAttribute(?int $value): ?int
     {
-        if ($value === 0) {
+        if ($value === 0 && $this->site) {
             $value = $this->site->server_id;
             $this->fill(['server_id' => $this->site->server_id]);
             $this->save();

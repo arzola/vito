@@ -4,9 +4,6 @@ namespace App\DTOs;
 
 class DynamicField
 {
-    /**
-     * @param  array<int, mixed>|null  $options
-     */
     public function __construct(
         private string $name,
         private string $type = 'text',
@@ -14,7 +11,10 @@ class DynamicField
         private mixed $default = null,
         private ?string $placeholder = null,
         private ?string $description = null,
-        private ?array $options = null
+        private ?array $options = null,
+        private ?array $link = null,
+        private ?string $className = null,
+        private ?array $componentProps = null,
     ) {}
 
     public static function make(string $name): self
@@ -32,6 +32,27 @@ class DynamicField
     public function text(): self
     {
         $this->type = 'text';
+
+        return $this;
+    }
+
+    public function password(): self
+    {
+        $this->type = 'password';
+
+        return $this;
+    }
+
+    public function passwordWithToggle(): self
+    {
+        $this->type = 'password-with-toggle';
+
+        return $this;
+    }
+
+    public function textarea(): self
+    {
+        $this->type = 'textarea';
 
         return $this;
     }
@@ -92,12 +113,36 @@ class DynamicField
         return $this;
     }
 
-    /**
-     * @param  array<int, mixed>|null  $options
-     */
     public function options(?array $options): self
     {
         $this->options = $options;
+
+        return $this;
+    }
+
+    public function link(string $label, string $url): self
+    {
+        $this->link = [
+            'label' => $label,
+            'url' => $url,
+        ];
+
+        return $this;
+    }
+
+    public function className(?string $className): self
+    {
+        $this->className = $className;
+
+        return $this;
+    }
+
+    /**
+     * @param  array<string, mixed>  $props
+     */
+    public function componentProps(array $props): self
+    {
+        $this->componentProps = $props;
 
         return $this;
     }
@@ -115,6 +160,9 @@ class DynamicField
             'placeholder' => $this->placeholder,
             'description' => $this->description,
             'options' => $this->options,
+            'link' => $this->link,
+            'className' => $this->className,
+            'componentProps' => $this->componentProps,
         ];
     }
 }

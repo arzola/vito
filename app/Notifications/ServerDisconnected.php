@@ -11,7 +11,7 @@ class ServerDisconnected extends AbstractNotification
 
     public function rawText(): string
     {
-        return __("We've disconnected from your server [:server]", [
+        return __('Connection lost to the server [:server]', [
             'server' => $this->server->name,
         ]);
     }
@@ -19,8 +19,8 @@ class ServerDisconnected extends AbstractNotification
     public function toEmail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-            ->subject(__('Server disconnected!'))
-            ->line("We've disconnected from your server [".$this->server->name.'].')
+            ->subject(__('Connection lost!'))
+            ->line('Connection lost to the server ['.$this->server->name.'].')
             ->line('Please check your server is online and make sure that has our public keys in it');
     }
 }

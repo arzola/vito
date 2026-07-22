@@ -1,5 +1,4 @@
-import { Server } from '@/types/server';
-import React, { FormEvent, ReactNode, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useState } from 'react';
 import {
   Dialog,
   DialogClose,
@@ -20,46 +19,70 @@ import InputError from '@/components/ui/input-error';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import axios from 'axios';
 import { Checkbox } from '@/components/ui/checkbox';
+import DatabaseUserSelect from '@/pages/database-users/components/database-user-select';
 
 type CreateForm = {
   name: string;
   charset: string;
   collation: string;
   user: boolean;
-  username: string;
-  password: string;
-  remote: boolean;
-  host: string;
+  existing_user_id: string;
 };
 
-export default function CreateDatabase({ server, children }: { server: Server; children: ReactNode }) {
+export default function CreateDatabase({
+  server,
+  withUser = false,
+  defaultCharset,
+  defaultCollation,
+  onDatabaseCreated,
+  children,
+}: {
+  server: number;
+  withUser?: boolean;
+  defaultCharset?: string;
+  defaultCollation?: string;
+  onDatabaseCreated?: () => void;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [charsets, setCharsets] = useState<string[]>([]);
   const [collations, setCollations] = useState<string[]>([]);
 
   const fetchCharsets = async () => {
-    axios.get(route('databases.charsets', server.id)).then((response) => {
+    axios.get(route('databases.charsets', server)).then((response) => {
       setCharsets(response.data);
     });
   };
 
   const form = useForm<CreateForm>({
     name: '',
-    charset: '',
-    collation: '',
-    user: false,
-    username: '',
-    password: '',
-    remote: false,
-    host: '',
+    charset: defaultCharset || '',
+    collation: defaultCollation || '',
+    user: withUser,
+    existing_user_id: '',
   });
+
+  // Auto-load collations when modal opens with a default charset
+  useEffect(() => {
+    if (open && form.data.charset && charsets.includes(form.data.charset) && collations.length === 0) {
+      axios.get(route('databases.collations', { server: server, charset: form.data.charset })).then((response) => {
+        setCollations(response.data);
+      });
+    }
+  }, [open, charsets, form.data.charset, server, collations]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    form.post(route('databases.store', server.id), {
+    form.post(route('databases.store', server), {
       onSuccess: () => {
         form.reset();
         setOpen(false);
+        if (onDatabaseCreated) {
+          onDatabaseCreated();
+        }
+      },
+      onError: () => {
+        // Handle error if needed
       },
     });
   };
@@ -74,7 +97,7 @@ export default function CreateDatabase({ server, children }: { server: Server; c
   const handleCharsetChange = (value: string) => {
     form.setData('collation', '');
     form.setData('charset', value);
-    axios.get(route('databases.collations', { server: server.id, charset: value })).then((response) => {
+    axios.get(route('databases.collations', { server: server, charset: value })).then((response) => {
       setCollations(response.data);
     });
   };
@@ -96,7 +119,7 @@ export default function CreateDatabase({ server, children }: { server: Server; c
             </FormField>
             <FormField>
               <Label htmlFor="charset">Charset</Label>
-              <Select onValueChange={handleCharsetChange} defaultValue={form.data.charset}>
+              <Select onValueChange={handleCharsetChange} value={form.data.charset}>
                 <SelectTrigger id="charset">
                   <SelectValue placeholder="Select charset" />
                 </SelectTrigger>
@@ -112,7 +135,7 @@ export default function CreateDatabase({ server, children }: { server: Server; c
             </FormField>
             <FormField>
               <Label htmlFor="collation">Collation</Label>
-              <Select onValueChange={(value) => form.setData('collation', value)} defaultValue={form.data.collation}>
+              <Select onValueChange={(value) => form.setData('collation', value)} value={form.data.collation}>
                 <SelectTrigger id="collation">
                   <SelectValue placeholder="Select collation" />
                 </SelectTrigger>
@@ -129,49 +152,21 @@ export default function CreateDatabase({ server, children }: { server: Server; c
             <FormField>
               <div className="flex items-center space-x-3">
                 <Checkbox id="user" name="user" checked={form.data.user} onClick={() => form.setData('user', !form.data.user)} />
-                <Label htmlFor="user">Create user</Label>
+                <Label htmlFor="user">Link user to database</Label>
               </div>
               <InputError message={form.errors.user} />
             </FormField>
             {form.data.user && (
-              <>
-                <FormField>
-                  <Label htmlFor="username">Username</Label>
-                  <Input
-                    type="text"
-                    id="username"
-                    name="username"
-                    value={form.data.username}
-                    onChange={(e) => form.setData('username', e.target.value)}
-                  />
-                  <InputError message={form.errors.username} />
-                </FormField>
-                <FormField>
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    type="password"
-                    id="password"
-                    name="password"
-                    value={form.data.password}
-                    onChange={(e) => form.setData('password', e.target.value)}
-                  />
-                  <InputError message={form.errors.password} />
-                </FormField>
-                <FormField>
-                  <div className="flex items-center space-x-3">
-                    <Checkbox id="remote" name="remote" checked={form.data.remote} onClick={() => form.setData('remote', !form.data.remote)} />
-                    <Label htmlFor="remote">Allow remote access</Label>
-                  </div>
-                  <InputError message={form.errors.remote} />
-                </FormField>
-                {form.data.remote && (
-                  <FormField>
-                    <Label htmlFor="host">Host</Label>
-                    <Input type="text" id="host" name="host" value={form.data.host} onChange={(e) => form.setData('host', e.target.value)} />
-                    <InputError message={form.errors.host} />
-                  </FormField>
-                )}
-              </>
+              <FormField>
+                <Label htmlFor="existing_user_id">Database User</Label>
+                <DatabaseUserSelect
+                  serverId={server}
+                  value={form.data.existing_user_id}
+                  onValueChange={(value) => form.setData('existing_user_id', value)}
+                  create={true}
+                />
+                <InputError message={form.errors.existing_user_id} />
+              </FormField>
             )}
           </FormFields>
         </Form>

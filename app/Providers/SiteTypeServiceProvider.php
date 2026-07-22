@@ -5,7 +5,12 @@ namespace App\Providers;
 use App\DTOs\DynamicField;
 use App\DTOs\DynamicForm;
 use App\Enums\LoadBalancerMethod;
+use App\Plugins\RegisterSiteFeature;
+use App\Plugins\RegisterSiteFeatureAction;
 use App\Plugins\RegisterSiteType;
+use App\SiteFeatures\ModernDeployment\Configuration;
+use App\SiteFeatures\ModernDeployment\Disable;
+use App\SiteFeatures\ModernDeployment\Enable;
 use App\SiteTypes\Laravel;
 use App\SiteTypes\LoadBalancer;
 use App\SiteTypes\NodeJS;
@@ -42,19 +47,18 @@ class SiteTypeServiceProvider extends ServiceProvider
                 DynamicField::make('source_control')
                     ->component()
                     ->label('Source Control'),
+                DynamicField::make('repository')
+                    ->text()
+                    ->component()
+                    ->label('Repository'),
+                DynamicField::make('branch')
+                    ->component()
+                    ->label('Branch'),
                 DynamicField::make('web_directory')
                     ->text()
                     ->label('Web Directory')
-                    ->placeholder('For / leave empty')
+                    ->placeholder('e.g., public, www, dist (leave empty for root)')
                     ->description('The relative path of your website from /home/vito/your-domain/'),
-                DynamicField::make('repository')
-                    ->text()
-                    ->label('Repository')
-                    ->placeholder('organization/repository'),
-                DynamicField::make('branch')
-                    ->text()
-                    ->label('Branch')
-                    ->default('main'),
                 DynamicField::make('composer')
                     ->checkbox()
                     ->label('Run `composer install --no-dev`')
@@ -75,7 +79,7 @@ class SiteTypeServiceProvider extends ServiceProvider
                 DynamicField::make('web_directory')
                     ->text()
                     ->label('Web Directory')
-                    ->placeholder('For / leave empty')
+                    ->placeholder('e.g., public, www, dist (leave empty for root)')
                     ->description('The relative path of your website from /home/vito/your-domain/'),
             ]))
             ->register();
@@ -97,7 +101,7 @@ class SiteTypeServiceProvider extends ServiceProvider
                     ->text()
                     ->label('Web Directory')
                     ->default('public')
-                    ->placeholder('For / leave empty')
+                    ->placeholder('e.g., public, www, dist (leave empty for root)')
                     ->description('The relative path of your website from /home/vito/your-domain/'),
                 DynamicField::make('repository')
                     ->text()
@@ -112,6 +116,22 @@ class SiteTypeServiceProvider extends ServiceProvider
                     ->label('Run `composer install --no-dev`')
                     ->default(false),
             ]))
+            ->register();
+        RegisterSiteFeature::make(Laravel::id(), 'modern-deployment')
+            ->label('Modern Deployment (beta)')
+            ->description('Enables zero downtime deployment and deployment rollbacks')
+            ->register();
+        RegisterSiteFeatureAction::make(Laravel::id(), 'modern-deployment', 'enable')
+            ->label('Enable')
+            ->handler(Enable::class)
+            ->register();
+        RegisterSiteFeatureAction::make(Laravel::id(), 'modern-deployment', 'disable')
+            ->label('Disable')
+            ->handler(Disable::class)
+            ->register();
+        RegisterSiteFeatureAction::make(Laravel::id(), 'modern-deployment', 'configuration')
+            ->label('Configure')
+            ->handler(Configuration::class)
             ->register();
     }
 
@@ -152,9 +172,9 @@ class SiteTypeServiceProvider extends ServiceProvider
                     ->select()
                     ->label('Load Balancing Method')
                     ->options([
-                        LoadBalancerMethod::IP_HASH,
-                        LoadBalancerMethod::ROUND_ROBIN,
-                        LoadBalancerMethod::LEAST_CONNECTIONS,
+                        LoadBalancerMethod::IP_HASH->value,
+                        LoadBalancerMethod::ROUND_ROBIN->value,
+                        LoadBalancerMethod::LEAST_CONNECTIONS->value,
                     ]),
             ]))
             ->register();
@@ -199,7 +219,8 @@ class SiteTypeServiceProvider extends ServiceProvider
                 DynamicField::make('database')
                     ->text()
                     ->label('Database Name')
-                    ->placeholder('wordpress'),
+                    ->placeholder('wordpress')
+                    ->componentProps(['defaultCharset' => 'utf8mb4', 'defaultCollation' => 'utf8mb4_0900_ai_ci']),
                 DynamicField::make('database_user')
                     ->text()
                     ->label('Database User')

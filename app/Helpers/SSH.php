@@ -37,6 +37,10 @@ class SSH
 
     protected PrivateKey $privateKey;
 
+    protected ?string $logDisk = null;
+
+    protected ?string $logPath = null;
+
     public function init(Server $server, ?string $asUser = null): self
     {
         $this->connection = null;
@@ -54,9 +58,66 @@ class SSH
         return $this;
     }
 
+    /**
+     * Ensure a server log exists when a log message is provided.
+     */
+    private function ensureLog(?string $log, ?int $siteId = null): void
+    {
+        if (! $this->log instanceof ServerLog && $log && ! $this->logDisk && ! $this->logPath) {
+            $this->log = ServerLog::newLog($this->server, $log);
+            if ($siteId !== null && $siteId !== 0) {
+                $this->log->forSite($siteId);
+            }
+            $this->log->save();
+        }
+    }
+
+    /**
+     * Ensure there is an active SFTP connection and return it.
+     */
+    private function ensureSftp(): SFTP
+    {
+        if (! $this->connection instanceof SFTP) {
+            $this->connect(true);
+        }
+
+        if (! $this->connection instanceof SFTP) {
+            throw new RuntimeException('Connection is not established!');
+        }
+
+        return $this->connection;
+    }
+
+    /**
+     * Write a chunk of output to either a file on a disk or the server log.
+     */
+    private function writeOutput(string $chunk): void
+    {
+        if ($this->logDisk && $this->logPath) {
+            Storage::disk($this->logDisk)->append($this->logPath, $chunk);
+        } else {
+            $this->log?->write($chunk);
+        }
+    }
+
     public function setLog(?ServerLog $log): self
     {
         $this->log = $log;
+
+        return $this;
+    }
+
+    public function useLog(string $disk, string $path): self
+    {
+        $this->logDisk = $disk;
+        $this->logPath = $path;
+
+        return $this;
+    }
+
+    public function asUser(?string $user): self
+    {
+        $this->asUser = $user;
 
         return $this;
     }
@@ -96,33 +157,32 @@ class SSH
      */
     public function exec(string|View $command, string $log = '', ?int $siteId = null, ?bool $stream = false, ?callable $streamCallback = null): string
     {
-        if (! $this->log instanceof ServerLog && $log) {
-            $this->log = ServerLog::newLog($this->server, $log);
-            if ($siteId !== null && $siteId !== 0) {
-                $this->log->forSite($siteId);
-            }
-            $this->log->save();
-        }
+        $this->ensureLog($log, $siteId);
 
         try {
             if (! $this->connection instanceof SSH2) {
                 $this->connect();
             }
         } catch (Throwable $e) {
+            $this->writeOutput($e->getMessage());
             throw new SSHConnectionError($e->getMessage());
         }
 
         try {
             if ($this->asUser !== null && $this->asUser !== '' && $this->asUser !== '0') {
-                $command = base64_encode((string) $command);
-                $command = "sudo su - {$this->asUser} -c 'bash -c \"echo {$command} | base64 -d | bash\"'";
+                $command = <<<BASH
+                sudo -u {$this->asUser} bash <<'EOF'
+                cd ~ || { echo 'VITO_SSH_ERROR: failed to cd to home directory' >&2; exit 1; }
+                {$command}
+                EOF
+                BASH;
             }
 
             $this->connection->setTimeout(0);
             if ($stream === true) {
                 /** @var callable $streamCallback */
                 $this->connection->exec($command, function ($output) use ($streamCallback) {
-                    $this->log?->write($output);
+                    $this->writeOutput($output);
 
                     return $streamCallback($output);
                 });
@@ -131,7 +191,8 @@ class SSH
             }
             $output = '';
             $this->connection->exec($command, function (string $out) use (&$output): void {
-                $this->log?->write($out);
+                $this->writeOutput($out);
+
                 $output .= $out;
             });
             if ($this->connection->getExitStatus() !== 0 || Str::contains($output, 'VITO_SSH_ERROR')) {
@@ -147,6 +208,7 @@ class SSH
                 'msg' => $e->getMessage(),
                 'log' => $this->log,
             ]);
+            $this->writeOutput($e->getMessage());
             throw new SSHCommandError(
                 message: $e->getMessage(),
                 log: $this->log
@@ -157,22 +219,15 @@ class SSH
     /**
      * @throws Throwable
      */
-    public function upload(string $local, string $remote, ?string $owner = null): void
+    public function upload(string $local, string $remote, ?string $owner = null, ?string $log = null, ?int $siteId = null): void
     {
-        $this->log = null;
-
-        if (! $this->connection instanceof SFTP) {
-            $this->connect(true);
-        }
-
-        if (! $this->connection instanceof SFTP) {
-            throw new RuntimeException('Connection is not established!');
-        }
+        $this->ensureLog($log, $siteId);
+        $sftp = $this->ensureSftp();
 
         $tmpName = Str::random(10).strtotime('now');
         $tempPath = home_path($this->user).'/'.$tmpName;
 
-        $this->connection->put($tempPath, $local, SFTP::SOURCE_LOCAL_FILE);
+        $sftp->put($tempPath, $local, SFTP::SOURCE_LOCAL_FILE);
 
         $this->exec(sprintf('sudo mv %s %s', $tempPath, $remote));
         if ($owner === null || $owner === '' || $owner === '0') {
@@ -185,25 +240,18 @@ class SSH
     /**
      * @throws Throwable
      */
-    public function download(string $local, string $remote): void
+    public function download(string $local, string $remote, ?string $log = null, ?int $siteId = null): void
     {
-        $this->log = null;
+        $this->ensureLog($log, $siteId);
+        $sftp = $this->ensureSftp();
 
-        if (! $this->connection instanceof SFTP) {
-            $this->connect(true);
-        }
-
-        if (! $this->connection instanceof SFTP) {
-            throw new RuntimeException('Connection is not established!');
-        }
-
-        $this->connection->get($remote, $local);
+        $sftp->get($remote, $local);
     }
 
     /**
      * @throws SSHError
      */
-    public function write(string $remotePath, string|View $content, ?string $owner = null): void
+    public function write(string $remotePath, string|View $content, ?string $owner = null, ?string $log = null, ?int $siteId = null): void
     {
         $tmpName = Str::random(10).strtotime('now');
 
@@ -211,7 +259,9 @@ class SSH
             /** @var FilesystemAdapter $storageDisk */
             $storageDisk = Storage::disk('local');
             $storageDisk->put($tmpName, $content);
-            $this->upload($storageDisk->path($tmpName), $remotePath, $owner);
+            $tmpRemotePath = '/tmp/'.$tmpName;
+            $this->upload($storageDisk->path($tmpName), $tmpRemotePath, $owner, $log, $siteId);
+            $this->asUser($owner)->exec('cat '.$tmpRemotePath.' > '.$remotePath);
         } catch (Throwable $e) {
             throw new SSHCommandError(
                 message: $e->getMessage()

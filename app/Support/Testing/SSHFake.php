@@ -82,13 +82,14 @@ class SSHFake extends SSH
         return $output;
     }
 
-    public function upload(string $local, string $remote, ?string $owner = null): void
+    public function upload(string $local, string $remote, ?string $owner = null, ?string $log = null, ?int $siteId = null): void
     {
         $this->uploadedLocalPath = $local;
         $this->uploadedRemotePath = $remote;
         $this->uploadedContent = file_get_contents($local) ?: '';
-        $this->log = null;
     }
+
+    public function download(string $local, string $remote, ?string $log = null, ?int $siteId = null): void {}
 
     /**
      * @param  array<string>|string  $commands
@@ -120,14 +121,24 @@ class SSHFake extends SSH
         $executed = false;
         foreach ($this->commands as $executedCommand) {
             if (str($executedCommand)->contains($command)) {
-                $executed = true;
-                break;
+                return;
             }
         }
-        if (! $executed) {
-            Assert::fail(
-                'The expected command is not executed in the executed commands: '.implode(', ', $this->commands)
-            );
+
+        Assert::fail(
+            'The expected command is not executed in the executed commands: '.implode(', ', $this->commands)
+        );
+    }
+
+    public function assertNotExecutedContains(string $command, string $message = ''): void
+    {
+        foreach ($this->commands as $executedCommand) {
+            $commandStr = (string) $executedCommand;
+            if (str($commandStr)->contains($command)) {
+                Assert::fail(
+                    $message ?: "The command '{$command}' should not be executed, but it was found in: {$commandStr}"
+                );
+            }
         }
     }
 

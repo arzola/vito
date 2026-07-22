@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Enums\LoadBalancerMethod;
 use App\Enums\SiteStatus;
 use App\Facades\SSH;
+use App\Models\Database;
+use App\Models\DatabaseUser;
 use App\Models\Site;
 use App\Models\SourceControl;
 use App\SiteTypes\Laravel;
@@ -36,8 +38,20 @@ class SitesTest extends TestCase
             ], 201),
         ]);
 
-        $this->actingAs($this->user);
+        if (isset($inputs['database']) && isset($inputs['database_user'])) {
+            /** @var Database $database */
+            $database = Database::factory()->create([
+                'server_id' => $this->server->id,
+            ]);
+            /** @var DatabaseUser $databaseUser */
+            $databaseUser = DatabaseUser::factory()->create([
+                'server_id' => $this->server->id,
+            ]);
+            $inputs['database'] = $database->id;
+            $inputs['database_user'] = $databaseUser->id;
+        }
 
+        $this->actingAs($this->user);
         /** @var SourceControl $sourceControl */
         $sourceControl = SourceControl::factory()->create([
             'provider' => Github::id(),
@@ -48,13 +62,12 @@ class SitesTest extends TestCase
         $this->post(route('sites.store', ['server' => $this->server]), $inputs)
             ->assertSessionDoesntHaveErrors();
 
-        $expectedUser = empty($inputs['user']) ? $this->server->getSshUser() : $inputs['user'];
         $this->assertDatabaseHas('sites', [
             'domain' => $inputs['domain'],
-            'aliases' => json_encode($inputs['aliases'] ?? []),
-            'status' => SiteStatus::READY,
-            'user' => $expectedUser,
-            'path' => '/home/'.$expectedUser.'/'.$inputs['domain'],
+            'aliases' => $this->castAsJson($inputs['aliases'] ?? []),
+            'status' => SiteStatus::READY->value,
+            'user' => $inputs['user'],
+            'path' => '/home/'.$inputs['user'].'/'.$inputs['domain'],
         ]);
     }
 
@@ -83,6 +96,7 @@ class SitesTest extends TestCase
             'repository' => 'test/test',
             'branch' => 'main',
             'composer' => true,
+            'user' => 'example',
         ];
 
         SSH::fake();
@@ -294,6 +308,232 @@ class SitesTest extends TestCase
         $this->assertEquals(['www.example.com', 'test.example.com'], $this->site->aliases);
     }
 
+    public function test_update_web_directory(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->patch(route('site-settings.update-web-directory', [
+            'server' => $this->server->id,
+            'site' => $this->site,
+        ]), [
+            'web_directory' => 'public',
+        ])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->site->refresh();
+        $this->assertEquals('public', $this->site->web_directory);
+    }
+
+    public function test_update_web_directory_empty(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->patch(route('site-settings.update-web-directory', [
+            'server' => $this->server->id,
+            'site' => $this->site,
+        ]), [
+            'web_directory' => '',
+        ])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->site->refresh();
+        $this->assertNull($this->site->web_directory);
+    }
+
+    public function test_update_web_directory_normalizes_slashes(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->patch(route('site-settings.update-web-directory', [
+            'server' => $this->server->id,
+            'site' => $this->site,
+        ]), [
+            'web_directory' => '/public/dist/',
+        ])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->site->refresh();
+        $this->assertEquals('public/dist', $this->site->web_directory);
+    }
+
+    public function test_update_web_directory_normalizes_root(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->patch(route('site-settings.update-web-directory', [
+            'server' => $this->server->id,
+            'site' => $this->site,
+        ]), [
+            'web_directory' => '/',
+        ])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->site->refresh();
+        $this->assertNull($this->site->web_directory);
+    }
+
+    public function test_update_web_directory_rejects_invalid_characters(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->patch(route('site-settings.update-web-directory', [
+            'server' => $this->server->id,
+            'site' => $this->site,
+        ]), [
+            'web_directory' => 'public@invalid!',
+        ])
+            ->assertSessionHasErrors(['web_directory']);
+    }
+
+    public function test_update_web_directory_rejects_directory_traversal(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->patch(route('site-settings.update-web-directory', [
+            'server' => $this->server->id,
+            'site' => $this->site,
+        ]), [
+            'web_directory' => '../etc/passwd',
+        ])
+            ->assertSessionHasErrors(['web_directory']);
+    }
+
+    public function test_create_site_with_valid_web_directory(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->post(route('sites.store', ['server' => $this->server]), [
+            'type' => PHPBlank::id(),
+            'domain' => 'example.com',
+            'php_version' => '8.2',
+            'web_directory' => 'public/dist',
+            'user' => 'example',
+        ])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->assertDatabaseHas('sites', [
+            'domain' => 'example.com',
+            'web_directory' => 'public/dist',
+        ]);
+    }
+
+    public function test_create_site_with_special_characters_web_directory(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->post(route('sites.store', ['server' => $this->server]), [
+            'type' => PHPBlank::id(),
+            'domain' => 'example.com',
+            'php_version' => '8.2',
+            'web_directory' => 'public-dist_v1.0',
+            'user' => 'example',
+        ])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->assertDatabaseHas('sites', [
+            'domain' => 'example.com',
+            'web_directory' => 'public-dist_v1.0',
+        ]);
+    }
+
+    public function test_create_site_normalizes_web_directory_slashes(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->post(route('sites.store', ['server' => $this->server]), [
+            'type' => PHPBlank::id(),
+            'domain' => 'example.com',
+            'php_version' => '8.2',
+            'web_directory' => '/public/',
+            'user' => 'example',
+        ])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->assertDatabaseHas('sites', [
+            'domain' => 'example.com',
+            'web_directory' => 'public',
+        ]);
+    }
+
+    public function test_create_site_normalizes_root_web_directory(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->post(route('sites.store', ['server' => $this->server]), [
+            'type' => PHPBlank::id(),
+            'domain' => 'example.com',
+            'php_version' => '8.2',
+            'web_directory' => '/',
+            'user' => 'example',
+        ])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->assertDatabaseHas('sites', [
+            'domain' => 'example.com',
+            'web_directory' => null,
+        ]);
+    }
+
+    public function test_create_site_rejects_invalid_web_directory_characters(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->post(route('sites.store', ['server' => $this->server]), [
+            'type' => PHPBlank::id(),
+            'domain' => 'example.com',
+            'php_version' => '8.2',
+            'web_directory' => 'public@invalid!',
+            'user' => 'example',
+        ])
+            ->assertSessionHasErrors(['web_directory']);
+
+        $this->assertDatabaseMissing('sites', [
+            'domain' => 'example.com',
+        ]);
+    }
+
+    public function test_create_site_rejects_directory_traversal(): void
+    {
+        SSH::fake();
+
+        $this->actingAs($this->user);
+
+        $this->post(route('sites.store', ['server' => $this->server]), [
+            'type' => PHPBlank::id(),
+            'domain' => 'example.com',
+            'php_version' => '8.2',
+            'web_directory' => '../etc/passwd',
+            'user' => 'example',
+        ])
+            ->assertSessionHasErrors(['web_directory']);
+
+        $this->assertDatabaseMissing('sites', [
+            'domain' => 'example.com',
+        ]);
+    }
+
     /**
      * @return array<array<int, mixed>>
      */
@@ -369,18 +609,6 @@ class SitesTest extends TestCase
                     'repository' => 'test/test',
                     'branch' => 'main',
                     'composer' => true,
-                ],
-            ],
-            [
-                [
-                    'type' => Laravel::id(),
-                    'domain' => 'example.com',
-                    'aliases' => ['www.example.com', 'www2.example.com'],
-                    'php_version' => '8.2',
-                    'web_directory' => 'public',
-                    'repository' => 'test/test',
-                    'branch' => 'main',
-                    'composer' => true,
                     'user' => 'example',
                 ],
             ],
@@ -394,28 +622,8 @@ class SitesTest extends TestCase
                     'username' => 'example',
                     'email' => 'email@example.com',
                     'password' => 'password',
-                    'database' => 'example',
-                    'charset' => 'utf8mb4',
-                    'collation' => 'utf8mb4_unicode_ci',
-                    'database_user' => 'example',
-                    'database_password' => 'password',
-                ],
-            ],
-            [
-                [
-                    'type' => Wordpress::id(),
-                    'domain' => 'example.com',
-                    'aliases' => ['www.example.com'],
-                    'php_version' => '8.2',
-                    'title' => 'Example',
-                    'username' => 'example',
-                    'email' => 'email@example.com',
-                    'password' => 'password',
-                    'database' => 'example',
-                    'charset' => 'utf8mb4',
-                    'collation' => 'utf8mb4_unicode_ci',
-                    'database_user' => 'example',
-                    'database_password' => 'password',
+                    'database' => '1',
+                    'database_user' => '1',
                     'user' => 'example',
                 ],
             ],
@@ -426,25 +634,7 @@ class SitesTest extends TestCase
                     'aliases' => ['www.example.com'],
                     'php_version' => '8.2',
                     'web_directory' => 'public',
-                ],
-            ],
-            [
-                [
-                    'type' => PHPBlank::id(),
-                    'domain' => 'example.com',
-                    'aliases' => ['www.example.com'],
-                    'php_version' => '8.2',
-                    'web_directory' => 'public',
                     'user' => 'example',
-                ],
-            ],
-            [
-                [
-                    'type' => PHPMyAdmin::id(),
-                    'domain' => 'example.com',
-                    'aliases' => ['www.example.com'],
-                    'php_version' => '8.2',
-                    'version' => '5.1.2',
                 ],
             ],
             [
@@ -463,7 +653,7 @@ class SitesTest extends TestCase
                     'domain' => 'example.com',
                     'aliases' => ['www.example.com'],
                     'user' => 'example',
-                    'method' => LoadBalancerMethod::ROUND_ROBIN,
+                    'method' => LoadBalancerMethod::ROUND_ROBIN->value,
                 ],
             ],
         ];

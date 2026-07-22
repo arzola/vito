@@ -89,6 +89,7 @@ jobs:
       - name: Build assets
         run: npm run build
 
+      # Release
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
@@ -107,8 +108,8 @@ jobs:
           prerelease: ${{ inputs.prerelease == 'true' }}
           generate_release_notes: true
 
-      - name: Install GitHub CLI
-        run: sudo apt-get install gh -y
+      - name: Verify GitHub CLI
+        run: gh --version
 
       - name: Get release notes from GitHub API
         id: fetch-release

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Actions\Service\Manage;
 use App\Enums\ServiceStatus;
 use App\Exceptions\ServiceInstallationFailed;
+use App\Services\Database\Database;
 use App\Services\Firewall\Firewall;
 use App\Services\PHP\PHP;
 use App\Services\ProcessManager\ProcessManager;
@@ -25,7 +26,7 @@ use InvalidArgumentException;
  * @property string $installed_version
  * @property string $unit
  * @property string $logs
- * @property string $status
+ * @property ServiceStatus $status
  * @property bool $is_default
  * @property Server $server
  */
@@ -51,24 +52,7 @@ class Service extends AbstractModel
         'server_id' => 'integer',
         'type_data' => 'json',
         'is_default' => 'boolean',
-    ];
-
-    /**
-     * @var array<string, string>
-     */
-    public static array $statusColors = [
-        ServiceStatus::READY => 'success',
-        ServiceStatus::INSTALLING => 'warning',
-        ServiceStatus::INSTALLATION_FAILED => 'danger',
-        ServiceStatus::UNINSTALLING => 'warning',
-        ServiceStatus::FAILED => 'danger',
-        ServiceStatus::STARTING => 'warning',
-        ServiceStatus::STOPPING => 'warning',
-        ServiceStatus::RESTARTING => 'warning',
-        ServiceStatus::STOPPED => 'danger',
-        ServiceStatus::ENABLING => 'warning',
-        ServiceStatus::DISABLING => 'warning',
-        ServiceStatus::DISABLED => 'gray',
+        'status' => ServiceStatus::class,
     ];
 
     /**
@@ -79,7 +63,7 @@ class Service extends AbstractModel
         return $this->belongsTo(Server::class);
     }
 
-    public function handler(): ServiceInterface|Webserver|PHP|Firewall|\App\Services\Database\Database|ProcessManager
+    public function handler(): ServiceInterface|Webserver|PHP|Firewall|Database|ProcessManager
     {
         $name = $this->name;
         $handler = config("service.services.$name.handler");
@@ -117,6 +101,11 @@ class Service extends AbstractModel
     public function restart(): void
     {
         $this->handler()->unit() && app(Manage::class)->restart($this);
+    }
+
+    public function reload(): void
+    {
+        $this->handler()->unit() && app(Manage::class)->reload($this);
     }
 
     public function enable(): void

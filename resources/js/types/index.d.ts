@@ -8,7 +8,6 @@ import { DynamicFieldConfig } from './dynamic-field-config';
 
 export interface Auth {
   user: User;
-  projects: Project[];
   currentProject?: Project;
 }
 
@@ -70,6 +69,18 @@ export interface Configs {
       };
     };
   };
+  dns_provider: {
+    providers: {
+      [provider: string]: {
+        label: string;
+        handler: string;
+        form?: DynamicFieldConfig[];
+        edit_form?: DynamicFieldConfig[];
+        proxy_types?: string[];
+        supports_created_at?: boolean;
+      };
+    };
+  };
   notification_channel: {
     providers: {
       [channel: string]: {
@@ -105,12 +116,12 @@ export interface Configs {
 export interface SharedData {
   name: string;
   version: string;
+  env: string;
   demo: boolean;
   quote: { message: string; author: string };
   auth: Auth;
   ziggy: Config & { location: string };
   configs: Configs;
-  project_servers: Server[];
   server_sites?: Site[];
   server?: Server;
   site?: Site;

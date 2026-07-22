@@ -26,12 +26,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-
-type Service = {
-  type: string;
-  name: string;
-  version: string;
-};
+import ServerTemplates from './templates';
+import { ServerTemplate, Service } from '@/types/server-template';
+import { Textarea } from '@/components/ui/textarea';
 
 type CreateServerForm = {
   provider: string;
@@ -326,6 +323,14 @@ export default function CreateServer({
     form.setData('plan', plan);
   };
 
+  const serverTemplateChanged = (template: ServerTemplate | null) => {
+    if (template) {
+      form.setData('services', template.services);
+    } else {
+      form.setData('services', []);
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={handleOpenChange} modal>
       <SheetTrigger asChild>{children}</SheetTrigger>
@@ -436,18 +441,17 @@ export default function CreateServer({
                   </AlertDescription>
                 </Alert>
                 <FormField>
-                  <Label htmlFor="public_key">Public Key command</Label>
-                  <Button
+                  <Label htmlFor="public_key" className="flex items-center gap-2">
+                    Public Key command
+                    {copySuccess ? <ClipboardCheckIcon className="text-success! size-3" /> : <ClipboardIcon className="size-3 cursor-pointer" />}
+                  </Label>
+                  <Textarea
                     onClick={copyToClipboard}
-                    variant="outline"
                     id="public_key"
-                    type="button"
                     value={page.props.public_key_text}
-                    className="justify-between truncate font-normal"
-                  >
-                    <span className="w-full max-w-2/3 overflow-x-hidden overflow-ellipsis">{page.props.public_key_text}</span>
-                    {copySuccess ? <ClipboardCheckIcon size={5} className="text-success!" /> : <ClipboardIcon size={5} />}
-                  </Button>
+                    className="justify-between overflow-auto font-normal"
+                    spellCheck={false}
+                  ></Textarea>
                 </FormField>
               </>
             )}
@@ -502,7 +506,10 @@ export default function CreateServer({
 
             <div>
               <FormField>
-                <Label>Services</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Services</Label>
+                  <ServerTemplates services={form.data.services} onTemplateChanged={serverTemplateChanged} />
+                </div>
                 <div>
                   <DataTable columns={servicesColumns} data={form.data.services} />
                 </div>
